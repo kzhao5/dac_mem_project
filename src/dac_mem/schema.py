@@ -1,3 +1,6 @@
+"""
+Core data classes for DAC-Mem.
+"""
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -36,6 +39,7 @@ class MemoryItem:
     session_id: str
     speaker: str
     timestamp: str
+    # --- type and features ---
     memory_type: str = 'generic_fact'
     utility: float = 0.0
     confidence: float = 1.0
@@ -44,8 +48,13 @@ class MemoryItem:
     type_prior: float = 0.5
     derivability: float = 0.0
     stale_risk: float = 0.0
+    # --- decision ---
     action: str = 'SKIP'
     score: float = 0.0
+    # --- LLM-based enrichments ---
+    llm_type: Optional[str] = None          # LLM-predicted type
+    llm_derivability: Optional[float] = None  # LLM judge derivability
+    probe_derivability: Optional[float] = None  # tool-grounded probe score
     metadata: Dict[str, Any] = field(default_factory=dict)
 
 
@@ -57,6 +66,15 @@ class RetrievedItem:
     score: float
     turn_id: Optional[str] = None
     session_id: Optional[str] = None
+    metadata: Dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class JudgeResult:
+    """Result of LLM-as-judge evaluation."""
+    score: float                 # 1-5 scale
+    reasoning: str = ''
+    judge_model: str = ''
     metadata: Dict[str, Any] = field(default_factory=dict)
 
 

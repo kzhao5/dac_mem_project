@@ -1,22 +1,27 @@
+"""
+Hybrid retrieval: BM25 + dense semantic embeddings.
+
+Uses real sentence embeddings by default (upgrade from legacy hashing).
+"""
 from __future__ import annotations
 
 from collections import Counter
-from typing import Dict, List, Sequence
+from typing import Dict, List, Optional, Sequence
 
 import numpy as np
 try:
-    from rank_bm25 import BM25Okapi  # type: ignore
-except Exception:  # pragma: no cover
+    from rank_bm25 import BM25Okapi
+except ImportError:
     BM25Okapi = None
-from sklearn.feature_extraction.text import HashingVectorizer
-from sklearn.metrics.pairwise import cosine_similarity
 
+from .embedding import BaseEmbedder, get_embedder
 from .schema import MemoryItem, RetrievedItem
 from .tool_index import ToolIndex, query_tools_for_question
 from .utils import tokenize
 
 
 class _FallbackBM25:
+    """Simple term-overlap BM25 substitute when rank_bm25 is unavailable."""
     def __init__(self, corpus_tokens: Sequence[Sequence[str]]):
         self.corpus = [list(x) for x in corpus_tokens]
 
@@ -26,64 +31,70 @@ class _FallbackBM25:
         for doc in self.corpus:
             d = Counter(doc)
             overlap = sum(min(q[k], d[k]) for k in q)
-            denom = max(len(doc), 1)
-            scores.append(overlap / denom)
+            scores.append(overlap / max(len(doc), 1))
         return scores
 
 
 class HybridRetriever:
-    def __init__(self, bm25_weight: float = 0.55, dense_weight: float = 0.45):
+    """BM25 + dense semantic retrieval with score fusion."""
+
+    def __init__(self, bm25_weight: float = 0.55, dense_weight: float = 0.45,
+                 embedder: Optional[BaseEmbedder] = None):
         self.bm25_weight = bm25_weight
         self.dense_weight = dense_weight
-        self.vectorizer = HashingVectorizer(n_features=2**18, alternate_sign=False, norm='l2')
+        self.embedder = embedder or get_embedder('bge-large')
 
     def _make_bm25(self, tokenized: Sequence[Sequence[str]]):
         if BM25Okapi is not None:
             return BM25Okapi(tokenized)
         return _FallbackBM25(tokenized)
 
-    def _retrieve_memory_bank(self, question: str, bank: Sequence[MemoryItem], source_name: str, top_k: int) -> List[RetrievedItem]:
+    def _retrieve_bank(self, question: str, bank: Sequence[MemoryItem],
+                       source_name: str, top_k: int) -> List[RetrievedItem]:
         if not bank:
             return []
+        # BM25
         tokenized = [tokenize(m.text) for m in bank]
         bm25 = self._make_bm25(tokenized)
         bm25_scores = np.array(bm25.get_scores(tokenize(question)), dtype=float)
         if bm25_scores.max() > 0:
-            bm25_scores = bm25_scores / bm25_scores.max()
+            bm25_scores /= bm25_scores.max()
+
+        # Dense
         texts = [m.text for m in bank]
-        X = self.vectorizer.transform(texts + [question])
-        dense_scores = cosine_similarity(X[-1], X[:-1]).ravel()
+        dense_scores = self.embedder.similarity(question, texts)
         if dense_scores.max() > 0:
-            dense_scores = dense_scores / dense_scores.max()
+            dense_scores /= dense_scores.max()
+
         scores = self.bm25_weight * bm25_scores + self.dense_weight * dense_scores
         idx = np.argsort(-scores)[:top_k]
-        out: List[RetrievedItem] = []
-        for i in idx:
-            m = bank[int(i)]
-            out.append(RetrievedItem(
-                memory_id=m.memory_id,
-                text=m.text,
+        return [
+            RetrievedItem(
+                memory_id=bank[int(i)].memory_id,
+                text=bank[int(i)].text,
                 source=source_name,
                 score=float(scores[int(i)]),
-                turn_id=m.turn_id,
-                session_id=m.session_id,
-                metadata={'memory_type': m.memory_type, 'action': m.action},
-            ))
-        return out
+                turn_id=bank[int(i)].turn_id,
+                session_id=bank[int(i)].session_id,
+                metadata={'memory_type': bank[int(i)].memory_type,
+                          'action': bank[int(i)].action},
+            )
+            for i in idx
+        ]
 
-    def retrieve(
-        self,
-        question: str,
-        persistent_bank: Sequence[MemoryItem],
-        ephemeral_bank: Sequence[MemoryItem],
-        tool_index: ToolIndex,
-        top_k: int = 8,
-        top_k_tools: int = 3,
-    ) -> List[RetrievedItem]:
+    def retrieve(self, question: str,
+                 persistent_bank: Sequence[MemoryItem],
+                 ephemeral_bank: Sequence[MemoryItem],
+                 tool_index: ToolIndex,
+                 top_k: int = 8,
+                 top_k_tools: int = 3) -> List[RetrievedItem]:
         tool_types = query_tools_for_question(question)
         tool_hits = tool_index.query(question, tool_types, top_k=top_k_tools)
-        p_hits = self._retrieve_memory_bank(question, persistent_bank, 'persistent', top_k=top_k)
-        e_hits = self._retrieve_memory_bank(question, ephemeral_bank, 'ephemeral', top_k=max(1, top_k // 2))
+        p_hits = self._retrieve_bank(question, persistent_bank,
+                                     'persistent', top_k=top_k)
+        e_hits = self._retrieve_bank(question, ephemeral_bank,
+                                     'ephemeral', top_k=max(1, top_k // 2))
+        # merge by best score per turn_id
         merged: Dict[str, RetrievedItem] = {}
         for it in tool_hits + p_hits + e_hits:
             key = it.turn_id or it.memory_id

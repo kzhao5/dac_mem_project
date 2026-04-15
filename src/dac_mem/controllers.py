@@ -1,14 +1,35 @@
+"""
+Memory write controllers for DAC-Mem.
+
+Controllers (baselines + ours):
+  1. StoreAllController       — persist everything
+  2. RelevanceOnlyController  — utility threshold
+  3. NoveltyRecencyController — novelty + recency weighted
+  4. AMACLiteController       — A-MAC 5-factor admission
+  5. DACMemController         — our method: derivability-aware 3-way decision
+
+Additional baselines (in baselines.py):
+  6. MemoryBankController     — timestamp-weighted
+  7. MemoryR1Controller       — LLM-prompted CRUD manager
+"""
 from __future__ import annotations
 
 from dataclasses import dataclass
 from itertools import product
-from typing import Dict, Iterable, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 
-from .features import FeatureComputer
+from .embedding import BaseEmbedder
+from .features import SemanticFeatureComputer
 from .schema import ControllerState, MemoryItem
-from .tool_index import ToolEntry, ToolIndex, relevant_tools_for_type
+from .tool_index import (
+    LLMDerivabilityProbe,
+    ToolEntry,
+    ToolGroundedRecoveryProbe,
+    ToolIndex,
+    relevant_tools_for_type,
+)
 
 
 @dataclass
@@ -25,28 +46,34 @@ class ControllerConfig:
     stale_weight: float = 0.8
     duplicate_threshold: float = 0.88
     eph_session_window: int = 2
+    # probe mode: 'embedding' | 'llm_judge' | 'tool_grounded'
+    probe_mode: str = 'embedding'
 
 
 class BaseController:
-    def __init__(self, config: Optional[ControllerConfig] = None):
+    def __init__(self, config: Optional[ControllerConfig] = None,
+                 embedder: Optional[BaseEmbedder] = None):
         self.config = config or ControllerConfig(name=self.__class__.__name__)
-        self.feats = FeatureComputer()
+        self.feats = SemanticFeatureComputer(embedder)
 
     @property
     def name(self) -> str:
         return self.config.name
 
-    def score_item(self, item: MemoryItem, state: ControllerState, current_ts: str, tool_index: ToolIndex) -> MemoryItem:
+    def score_item(self, item: MemoryItem, state: ControllerState,
+                   current_ts: str, tool_index: ToolIndex) -> MemoryItem:
         item.novelty = self.feats.compute_novelty(item, state.persistent)
         item.recency = self.feats.compute_recency(item, current_ts)
         item.utility = self.feats.compute_utility(item)
         item.stale_risk = self.feats.compute_stale_risk(item)
         return item
 
-    def decide(self, item: MemoryItem, state: ControllerState, current_ts: str, tool_index: ToolIndex) -> str:
+    def decide(self, item: MemoryItem, state: ControllerState,
+               current_ts: str, tool_index: ToolIndex) -> str:
         raise NotImplementedError
 
-    def apply(self, item: MemoryItem, state: ControllerState, current_ts: str, tool_index: ToolIndex) -> str:
+    def apply(self, item: MemoryItem, state: ControllerState,
+              current_ts: str, tool_index: ToolIndex) -> str:
         item = self.score_item(item, state, current_ts, tool_index)
         decision = self.decide(item, state, current_ts, tool_index)
         item.action = decision
@@ -57,51 +84,60 @@ class BaseController:
         return decision
 
 
-class StoreAllController(BaseController):
-    def __init__(self):
-        super().__init__(ControllerConfig(name='store_all'))
+# ── Baseline 1: Store-All ──────────────────────────────────────────────────
 
-    def decide(self, item: MemoryItem, state: ControllerState, current_ts: str, tool_index: ToolIndex) -> str:
+class StoreAllController(BaseController):
+    def __init__(self, **kw):
+        super().__init__(ControllerConfig(name='store_all'), **kw)
+
+    def decide(self, item, state, current_ts, tool_index):
         item.score = 1.0
         return 'PERSIST'
 
 
-class RelevanceOnlyController(BaseController):
-    def __init__(self, threshold: float = 0.58):
-        super().__init__(ControllerConfig(name='relevance_only', persist_threshold=threshold))
+# ── Baseline 2: Relevance-Only ─────────────────────────────────────────────
 
-    def decide(self, item: MemoryItem, state: ControllerState, current_ts: str, tool_index: ToolIndex) -> str:
+class RelevanceOnlyController(BaseController):
+    def __init__(self, threshold: float = 0.58, **kw):
+        super().__init__(ControllerConfig(name='relevance_only',
+                                          persist_threshold=threshold), **kw)
+
+    def decide(self, item, state, current_ts, tool_index):
         item.score = item.utility
         return 'PERSIST' if item.utility >= self.config.persist_threshold else 'SKIP'
 
 
-class NoveltyRecencyController(BaseController):
-    def __init__(self, threshold: float = 0.55):
-        super().__init__(ControllerConfig(name='novelty_recency', persist_threshold=threshold, novelty_weight=0.65, recency_weight=0.35))
+# ── Baseline 3: Novelty / Recency ──────────────────────────────────────────
 
-    def decide(self, item: MemoryItem, state: ControllerState, current_ts: str, tool_index: ToolIndex) -> str:
-        score = self.config.novelty_weight * item.novelty + self.config.recency_weight * item.recency
+class NoveltyRecencyController(BaseController):
+    def __init__(self, threshold: float = 0.55, **kw):
+        super().__init__(ControllerConfig(
+            name='novelty_recency', persist_threshold=threshold,
+            novelty_weight=0.65, recency_weight=0.35), **kw)
+
+    def decide(self, item, state, current_ts, tool_index):
+        score = (self.config.novelty_weight * item.novelty +
+                 self.config.recency_weight * item.recency)
         item.score = score
         return 'PERSIST' if score >= self.config.persist_threshold else 'SKIP'
 
 
+# ── Baseline 4: A-MAC-lite ─────────────────────────────────────────────────
+
 class AMACLiteController(BaseController):
+    """Reimplementation of A-MAC 5-factor admission control:
+    utility, confidence, novelty, recency, type_prior.
     """
-    Lightweight reimplementation of A-MAC style weighted admission using
-    utility, confidence, novelty, recency, and type prior.
-    """
-    def __init__(self, weights: Optional[Dict[str, float]] = None, threshold: float = 0.62):
-        cfg = ControllerConfig(name='amac_lite', persist_threshold=threshold)
-        super().__init__(cfg)
+    def __init__(self, weights: Optional[Dict[str, float]] = None,
+                 threshold: float = 0.62, **kw):
+        super().__init__(ControllerConfig(name='amac_lite',
+                                          persist_threshold=threshold), **kw)
         self.weights = weights or {
-            'utility': 0.38,
-            'confidence': 0.14,
-            'novelty': 0.22,
-            'recency': 0.10,
-            'type_prior': 0.16,
+            'utility': 0.38, 'confidence': 0.14, 'novelty': 0.22,
+            'recency': 0.10, 'type_prior': 0.16,
         }
 
-    def decide(self, item: MemoryItem, state: ControllerState, current_ts: str, tool_index: ToolIndex) -> str:
+    def decide(self, item, state, current_ts, tool_index):
         score = (
             self.weights['utility'] * item.utility +
             self.weights['confidence'] * item.confidence +
@@ -113,8 +149,25 @@ class AMACLiteController(BaseController):
         return 'PERSIST' if score >= self.config.persist_threshold else 'SKIP'
 
 
+# ── Our method: DAC-Mem ────────────────────────────────────────────────────
+
 class DACMemController(BaseController):
-    def __init__(self, config: Optional[ControllerConfig] = None):
+    """Derivability-Aware Controller for Persistent Memory.
+
+    Core formula:
+        persist_score = α·U - β·D - γ·S + δ·T + ...
+        ephemeral_score = ...
+
+    Three-way decision: PERSIST / EPHEMERAL / SKIP.
+
+    Supports three probe modes for derivability:
+        'embedding'      — cosine similarity against tool index (default)
+        'llm_judge'      — LLM rates derivability (lightweight)
+        'tool_grounded'  — bounded recovery agent (full version)
+    """
+
+    def __init__(self, config: Optional[ControllerConfig] = None,
+                 llm=None, **kw):
         cfg = config or ControllerConfig(
             name='dac_mem',
             persist_threshold=0.55,
@@ -127,18 +180,65 @@ class DACMemController(BaseController):
             derivability_weight=1.0,
             stale_weight=0.75,
         )
-        super().__init__(cfg)
+        super().__init__(cfg, **kw)
+        self.llm = llm
+        self._llm_probe: Optional[LLMDerivabilityProbe] = None
+        self._grounded_probe: Optional[ToolGroundedRecoveryProbe] = None
 
-    def score_item(self, item: MemoryItem, state: ControllerState, current_ts: str, tool_index: ToolIndex) -> MemoryItem:
+    def _get_llm_probe(self) -> LLMDerivabilityProbe:
+        if self._llm_probe is None:
+            assert self.llm is not None, \
+                "LLM required for probe_mode='llm_judge'"
+            self._llm_probe = LLMDerivabilityProbe(self.llm)
+        return self._llm_probe
+
+    def _get_grounded_probe(self, tool_index: ToolIndex) -> ToolGroundedRecoveryProbe:
+        if self._grounded_probe is None:
+            assert self.llm is not None, \
+                "LLM required for probe_mode='tool_grounded'"
+            self._grounded_probe = ToolGroundedRecoveryProbe(
+                self.llm, tool_index)
+        return self._grounded_probe
+
+    def score_item(self, item: MemoryItem, state: ControllerState,
+                   current_ts: str, tool_index: ToolIndex) -> MemoryItem:
         item = super().score_item(item, state, current_ts, tool_index)
         relevant_tools = relevant_tools_for_type(item.memory_type)
-        probe_score, tool_scores = tool_index.probe_recoverability(item, relevant_tools=relevant_tools)
-        item.derivability = max(item.derivability, probe_score)
+        mode = self.config.probe_mode
+
+        # 1. Embedding probe (always computed as base)
+        emb_score, tool_scores = tool_index.probe_recoverability(
+            item, relevant_tools=relevant_tools)
         item.metadata['tool_scores'] = tool_scores
+
+        # 2. LLM judge (if requested)
+        if mode == 'llm_judge' and self.llm is not None:
+            llm_score = self._get_llm_probe().probe(item)
+            item.llm_derivability = llm_score
+            # blend: 0.6 LLM + 0.4 embedding
+            item.derivability = max(item.derivability,
+                                    0.6 * llm_score + 0.4 * emb_score)
+
+        # 3. Tool-grounded recovery probe (if requested)
+        elif mode == 'tool_grounded' and self.llm is not None:
+            probe = self._get_grounded_probe(tool_index)
+            grounded_score, probe_info = probe.probe(item, relevant_tools)
+            item.probe_derivability = grounded_score
+            item.metadata['probe_info'] = probe_info
+            # blend: 0.7 grounded + 0.3 embedding
+            item.derivability = max(item.derivability,
+                                    0.7 * grounded_score + 0.3 * emb_score)
+
+        # 4. Embedding-only (default)
+        else:
+            item.derivability = max(item.derivability, emb_score)
+
         return item
 
-    def decide(self, item: MemoryItem, state: ControllerState, current_ts: str, tool_index: ToolIndex) -> str:
-        duplicate_penalty = 0.2 if (1.0 - item.novelty) >= self.config.duplicate_threshold else 0.0
+    def decide(self, item: MemoryItem, state: ControllerState,
+               current_ts: str, tool_index: ToolIndex) -> str:
+        dup_pen = 0.2 if (1.0 - item.novelty) >= self.config.duplicate_threshold else 0.0
+
         persist_score = (
             self.config.utility_weight * item.utility +
             self.config.confidence_weight * item.confidence +
@@ -147,7 +247,7 @@ class DACMemController(BaseController):
             self.config.type_weight * item.type_prior -
             self.config.derivability_weight * item.derivability -
             self.config.stale_weight * item.stale_risk -
-            duplicate_penalty
+            dup_pen
         )
         ephemeral_score = (
             0.65 * item.utility +
@@ -159,6 +259,7 @@ class DACMemController(BaseController):
         item.metadata['persist_score'] = float(persist_score)
         item.metadata['ephemeral_score'] = float(ephemeral_score)
         item.score = float(max(persist_score, ephemeral_score))
+
         if persist_score >= self.config.persist_threshold:
             return 'PERSIST'
         if ephemeral_score >= self.config.ephemeral_threshold:
@@ -166,45 +267,19 @@ class DACMemController(BaseController):
         return 'SKIP'
 
 
-def controller_from_name(name: str):
+# ── factory ────────────────────────────────────────────────────────────────
+
+def controller_from_name(name: str, llm=None, embedder=None):
     key = name.lower()
-    if key in {'store_all', 'storeall'}:
-        return StoreAllController()
-    if key in {'relevance', 'relevance_only'}:
-        return RelevanceOnlyController()
-    if key in {'novelty', 'novelty_recency'}:
-        return NoveltyRecencyController()
-    if key in {'amac', 'amac_lite'}:
-        return AMACLiteController()
-    if key in {'dac', 'dac_mem', 'dacmem'}:
-        return DACMemController()
+    kw = {'embedder': embedder} if embedder else {}
+    if key in ('store_all', 'storeall'):
+        return StoreAllController(**kw)
+    if key in ('relevance', 'relevance_only'):
+        return RelevanceOnlyController(**kw)
+    if key in ('novelty', 'novelty_recency'):
+        return NoveltyRecencyController(**kw)
+    if key in ('amac', 'amac_lite'):
+        return AMACLiteController(**kw)
+    if key in ('dac', 'dac_mem', 'dacmem'):
+        return DACMemController(llm=llm, **kw)
     raise ValueError(f'Unknown controller: {name}')
-
-
-def tune_amac_weights(examples, candidate_weight_grid: Optional[Dict[str, List[float]]] = None) -> Dict[str, float]:
-    """
-    Lightweight simplex search over A-MAC weights. Returns normalized weights.
-    This function intentionally stays simple and fast.
-    """
-    grid = candidate_weight_grid or {
-        'utility': [0.30, 0.38, 0.45],
-        'confidence': [0.10, 0.14, 0.18],
-        'novelty': [0.18, 0.22, 0.28],
-        'recency': [0.08, 0.10, 0.14],
-        'type_prior': [0.12, 0.16, 0.22],
-    }
-    best = None
-    best_score = -1e9
-    for values in product(*grid.values()):
-        weights = dict(zip(grid.keys(), values))
-        total = sum(weights.values())
-        if total <= 0:
-            continue
-        weights = {k: v / total for k, v in weights.items()}
-        # Proxy objective: favor utility and novelty, avoid over-reliance on recency.
-        proxy = 0.45 * weights['utility'] + 0.30 * weights['novelty'] + 0.15 * weights['type_prior'] + 0.10 * weights['confidence'] - 0.05 * weights['recency']
-        if proxy > best_score:
-            best_score = proxy
-            best = weights
-    assert best is not None
-    return best

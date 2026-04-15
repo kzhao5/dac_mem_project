@@ -1,25 +1,44 @@
+# DAC-Mem default configuration
+
 project_name: dac_mem
+
+# ── Embedding model ───────────────────────────────────────────────────────
+embedding:
+  model: bge-large                # bge-large | minilm | gte-large | openai | hashing
+  device: cpu                     # cpu | cuda | auto
+  use_cache: true
+
+# ── LLM providers ─────────────────────────────────────────────────────────
+llm:
+  # Main LLM for type classification, derivability probing, reading
+  provider: openai                # openai | anthropic | google | qwen | llama | vllm
+  model: gpt-4o
+  use_cache: true
+
+  # Judge LLM (can differ from main LLM for independence)
+  judge_provider: openai
+  judge_model: gpt-4o
+
+# ── Retrieval ──────────────────────────────────────────────────────────────
 retrieval:
   top_k: 8
   top_k_tools: 3
   bm25_weight: 0.55
   dense_weight: 0.45
+
+# ── Memory ─────────────────────────────────────────────────────────────────
 memory:
   ephemeral_session_window: 2
   duplicate_threshold: 0.88
+
+# ── Pipeline ───────────────────────────────────────────────────────────────
+pipeline:
+  reader_mode: llm                # none | heuristic | hf_extractive | llm
+  use_llm_extractor: true         # use LLM for type classification
+  use_llm_judge: true             # use LLM-as-judge for QA evaluation
+
+# ── Controllers ────────────────────────────────────────────────────────────
 controllers:
-  relevance_only:
-    persist_threshold: 0.58
-  novelty_recency:
-    persist_threshold: 0.55
-  amac_lite:
-    persist_threshold: 0.62
-    weights:
-      utility: 0.38
-      confidence: 0.14
-      novelty: 0.22
-      recency: 0.10
-      type_prior: 0.16
   dac_mem:
     persist_threshold: 0.55
     ephemeral_threshold: 0.58
@@ -30,3 +49,28 @@ controllers:
     type_weight: 0.35
     derivability_weight: 1.00
     stale_weight: 0.75
+    # probe_mode: embedding | llm_judge | tool_grounded
+    probe_mode: tool_grounded
+
+  amac_lite:
+    persist_threshold: 0.62
+    weights:
+      utility: 0.38
+      confidence: 0.14
+      novelty: 0.22
+      recency: 0.10
+      type_prior: 0.16
+
+  relevance_only:
+    persist_threshold: 0.58
+
+  novelty_recency:
+    persist_threshold: 0.55
+
+# ── Tuning ─────────────────────────────────────────────────────────────────
+tuning:
+  persist_threshold: [0.45, 0.50, 0.55, 0.60]
+  ephemeral_threshold: [0.50, 0.55, 0.60, 0.65]
+  derivability_weight: [0.8, 1.0, 1.2]
+  stale_weight: [0.5, 0.75, 1.0]
+  objective: "turn_hit@k + 0.5 * session_hit@k - 0.02 * persistent_size"
