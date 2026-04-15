@@ -1,0 +1,111 @@
+[
+  {
+    "example_id": "syn_001",
+    "dataset": "synthetic",
+    "question": "Why did the user reject the cloud migration plan?",
+    "answer": "Because the demo needed to stay simple and avoid risky infrastructure changes.",
+    "question_type": "knowledge-update",
+    "question_timestamp": "2026-03-10 10:00:00",
+    "evidence_turn_ids": [
+      "s2_t2"
+    ],
+    "evidence_session_ids": [
+      "session_2"
+    ],
+    "turns": [
+      {
+        "turn_id": "s1_t1",
+        "session_id": "session_1",
+        "speaker": "user",
+        "text": "My name is Maya and I work as a product designer in Denver.",
+        "timestamp": "2026-03-01 09:00:00"
+      },
+      {
+        "turn_id": "s1_t2",
+        "session_id": "session_1",
+        "speaker": "user",
+        "text": "I prefer concise answers and I do not like emoji in work messages.",
+        "timestamp": "2026-03-01 09:03:00"
+      },
+      {
+        "turn_id": "s1_t3",
+        "session_id": "session_1",
+        "speaker": "assistant",
+        "text": "I will keep responses concise and professional.",
+        "timestamp": "2026-03-01 09:04:00"
+      },
+      {
+        "turn_id": "s2_t1",
+        "session_id": "session_2",
+        "speaker": "assistant",
+        "text": "The migration notes are in docs/migration/phase1.md and the default branch is main.",
+        "timestamp": "2026-03-05 11:00:00"
+      },
+      {
+        "turn_id": "s2_t2",
+        "session_id": "session_2",
+        "speaker": "user",
+        "text": "I rejected the cloud migration plan because the demo needs to stay simple and avoid risky infrastructure changes.",
+        "timestamp": "2026-03-05 11:02:00"
+      },
+      {
+        "turn_id": "s2_t3",
+        "session_id": "session_2",
+        "speaker": "assistant",
+        "text": "Understood. We will keep the demo on the local stack.",
+        "timestamp": "2026-03-05 11:03:00"
+      }
+    ]
+  },
+  {
+    "example_id": "syn_002",
+    "dataset": "synthetic",
+    "question": "When was the project review moved to?",
+    "answer": "Wednesday at 3 pm.",
+    "question_type": "temporal-reasoning",
+    "question_timestamp": "2026-03-12 16:00:00",
+    "evidence_turn_ids": [
+      "s4_t1"
+    ],
+    "evidence_session_ids": [
+      "session_4"
+    ],
+    "turns": [
+      {
+        "turn_id": "s3_t1",
+        "session_id": "session_3",
+        "speaker": "user",
+        "text": "The project review is on Tuesday at 2 pm.",
+        "timestamp": "2026-03-08 10:00:00"
+      },
+      {
+        "turn_id": "s3_t2",
+        "session_id": "session_3",
+        "speaker": "assistant",
+        "text": "I added the review meeting to the calendar.",
+        "timestamp": "2026-03-08 10:01:00"
+      },
+      {
+        "turn_id": "s4_t1",
+        "session_id": "session_4",
+        "speaker": "user",
+        "text": "Please update it: the project review was moved to Wednesday at 3 pm.",
+        "timestamp": "2026-03-11 08:00:00"
+      },
+      {
+        "turn_id": "s4_t2",
+        "session_id": "session_4",
+        "speaker": "assistant",
+        "text": "Updated. The calendar now shows Wednesday at 3 pm.",
+        "timestamp": "2026-03-11 08:01:00"
+      },
+      {
+        "turn_id": "s4_t3",
+        "session_id": "session_4",
+        "speaker": "assistant",
+        "text": "The prior Tuesday slot is no longer current.",
+        "timestamp": "2026-03-11 08:02:00"
+      }
+    ]
+  }
+]

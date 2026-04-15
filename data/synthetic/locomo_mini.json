@@ -1,0 +1,33 @@
+[
+  {
+    "sample_id": "locomo_syn_01",
+    "conversation": {
+      "speaker_a": "Alice",
+      "speaker_b": "Bob",
+      "session_1_date_time": "2026-02-01 09:00:00",
+      "session_1": [
+        {"speaker": "Alice", "dia_id": "d1", "text": "I live in Seattle and I usually bike to work."},
+        {"speaker": "Bob", "dia_id": "d2", "text": "Nice, I work as a data engineer."}
+      ],
+      "session_2_date_time": "2026-02-07 15:00:00",
+      "session_2": [
+        {"speaker": "Alice", "dia_id": "d3", "text": "I canceled Friday's dinner because my sister is visiting."},
+        {"speaker": "Bob", "dia_id": "d4", "text": "No problem, we can reschedule for next week."}
+      ]
+    },
+    "qa": [
+      {
+        "question": "Why did Alice cancel Friday's dinner?",
+        "answer": "Because her sister is visiting.",
+        "category": "reasoning",
+        "evidence": ["d3"]
+      },
+      {
+        "question": "Where does Alice live?",
+        "answer": "Seattle.",
+        "category": "profile",
+        "evidence": ["d1"]
+      }
+    ]
+  }
+]

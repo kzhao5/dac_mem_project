@@ -1,0 +1,32 @@
+project_name: dac_mem
+retrieval:
+  top_k: 8
+  top_k_tools: 3
+  bm25_weight: 0.55
+  dense_weight: 0.45
+memory:
+  ephemeral_session_window: 2
+  duplicate_threshold: 0.88
+controllers:
+  relevance_only:
+    persist_threshold: 0.58
+  novelty_recency:
+    persist_threshold: 0.55
+  amac_lite:
+    persist_threshold: 0.62
+    weights:
+      utility: 0.38
+      confidence: 0.14
+      novelty: 0.22
+      recency: 0.10
+      type_prior: 0.16
+  dac_mem:
+    persist_threshold: 0.55
+    ephemeral_threshold: 0.58
+    utility_weight: 1.05
+    confidence_weight: 0.15
+    novelty_weight: 0.35
+    recency_weight: 0.10
+    type_weight: 0.35
+    derivability_weight: 1.00
+    stale_weight: 0.75
