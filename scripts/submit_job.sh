@@ -2,11 +2,11 @@
 #SBATCH --job-name=memjudge
 #SBATCH --output=logs/memjudge_%j.out
 #SBATCH --error=logs/memjudge_%j.err
-#SBATCH --partition=dw
-#SBATCH --qos=dw87
-#SBATCH --time=12:00:00
+#SBATCH --partition=m13h
+#SBATCH --qos=gpu
+#SBATCH --time=08:00:00
 #SBATCH --mem=64G
-#SBATCH --gres=gpu:a100:1
+#SBATCH --gres=gpu:h200:1
 #SBATCH --cpus-per-task=8
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
