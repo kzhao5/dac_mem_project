@@ -1,0 +1,68 @@
+{
+  "store_all": {
+    "controller": "store_all",
+    "per_example_size": [
+      6.0,
+      5.0
+    ],
+    "cumulative_avg": [
+      6.0,
+      5.5
+    ]
+  },
+  "relevance_only": {
+    "controller": "relevance_only",
+    "per_example_size": [
+      3.0,
+      1.0
+    ],
+    "cumulative_avg": [
+      3.0,
+      2.0
+    ]
+  },
+  "novelty_recency": {
+    "controller": "novelty_recency",
+    "per_example_size": [
+      6.0,
+      5.0
+    ],
+    "cumulative_avg": [
+      6.0,
+      5.5
+    ]
+  },
+  "amac_lite": {
+    "controller": "amac_lite",
+    "per_example_size": [
+      4.0,
+      5.0
+    ],
+    "cumulative_avg": [
+      4.0,
+      4.5
+    ]
+  },
+  "memory_bank": {
+    "controller": "memory_bank",
+    "per_example_size": [
+      6.0,
+      5.0
+    ],
+    "cumulative_avg": [
+      6.0,
+      5.5
+    ]
+  },
+  "memjudge": {
+    "controller": "memjudge",
+    "per_example_size": [
+      3.0,
+      1.0
+    ],
+    "cumulative_avg": [
+      3.0,
+      2.0
+    ]
+  }
+}

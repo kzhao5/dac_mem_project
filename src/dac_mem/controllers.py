@@ -1,34 +1,27 @@
 """
-Memory write controllers for DAC-Mem.
+Memory write controllers.
 
-Controllers (baselines + ours):
+Baselines:
   1. StoreAllController       — persist everything
   2. RelevanceOnlyController  — utility threshold
-  3. NoveltyRecencyController — novelty + recency weighted
+  3. NoveltyRecencyController — novelty + recency
   4. AMACLiteController       — A-MAC 5-factor admission
-  5. DACMemController         — our method: derivability-aware 3-way decision
 
-Additional baselines (in baselines.py):
-  6. MemoryBankController     — timestamp-weighted
-  7. MemoryR1Controller       — LLM-prompted CRUD manager
+Our method:
+  5. MemJudgeController       — LLM-judged derivability sieve (3-way)
+     Uses LLM-as-judge to estimate tool-recoverability,
+     falls back to embedding probe when no LLM is available.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass
-from itertools import product
-from typing import Dict, List, Optional, Tuple
-
-import numpy as np
+from typing import Dict, List, Optional
 
 from .embedding import BaseEmbedder
 from .features import SemanticFeatureComputer
 from .schema import ControllerState, MemoryItem
 from .tool_index import (
-    LLMDerivabilityProbe,
-    ToolEntry,
-    ToolGroundedRecoveryProbe,
-    ToolIndex,
-    relevant_tools_for_type,
+    LLMDerivabilityProbe, ToolIndex, relevant_tools_for_type,
 )
 
 
@@ -46,8 +39,6 @@ class ControllerConfig:
     stale_weight: float = 0.8
     duplicate_threshold: float = 0.88
     eph_session_window: int = 2
-    # probe mode: 'embedding' | 'llm_judge' | 'tool_grounded'
-    probe_mode: str = 'embedding'
 
 
 class BaseController:
@@ -84,7 +75,7 @@ class BaseController:
         return decision
 
 
-# ── Baseline 1: Store-All ──────────────────────────────────────────────────
+# ── Baselines ──────────────────────────────────────────────────────────────
 
 class StoreAllController(BaseController):
     def __init__(self, **kw):
@@ -95,8 +86,6 @@ class StoreAllController(BaseController):
         return 'PERSIST'
 
 
-# ── Baseline 2: Relevance-Only ─────────────────────────────────────────────
-
 class RelevanceOnlyController(BaseController):
     def __init__(self, threshold: float = 0.58, **kw):
         super().__init__(ControllerConfig(name='relevance_only',
@@ -106,8 +95,6 @@ class RelevanceOnlyController(BaseController):
         item.score = item.utility
         return 'PERSIST' if item.utility >= self.config.persist_threshold else 'SKIP'
 
-
-# ── Baseline 3: Novelty / Recency ──────────────────────────────────────────
 
 class NoveltyRecencyController(BaseController):
     def __init__(self, threshold: float = 0.55, **kw):
@@ -122,12 +109,8 @@ class NoveltyRecencyController(BaseController):
         return 'PERSIST' if score >= self.config.persist_threshold else 'SKIP'
 
 
-# ── Baseline 4: A-MAC-lite ─────────────────────────────────────────────────
-
 class AMACLiteController(BaseController):
-    """Reimplementation of A-MAC 5-factor admission control:
-    utility, confidence, novelty, recency, type_prior.
-    """
+    """A-MAC 5-factor admission: utility, confidence, novelty, recency, type_prior."""
     def __init__(self, weights: Optional[Dict[str, float]] = None,
                  threshold: float = 0.62, **kw):
         super().__init__(ControllerConfig(name='amac_lite',
@@ -149,27 +132,22 @@ class AMACLiteController(BaseController):
         return 'PERSIST' if score >= self.config.persist_threshold else 'SKIP'
 
 
-# ── Our method: DAC-Mem ────────────────────────────────────────────────────
+# ── Our method: MemJudge ───────────────────────────────────────────────────
 
-class DACMemController(BaseController):
-    """Derivability-Aware Controller for Persistent Memory.
+class MemJudgeController(BaseController):
+    """MemJudge: LLM-as-Judge for Tool-Conditioned Memory Writing.
 
-    Core formula:
-        persist_score = α·U - β·D - γ·S + δ·T + ...
-        ephemeral_score = ...
+    Core idea: an LLM judges whether each candidate memory is
+    tool-recoverable. Recoverable info is filtered out (EPHEMERAL/SKIP),
+    only truly non-recoverable valuable info is persisted.
 
     Three-way decision: PERSIST / EPHEMERAL / SKIP.
-
-    Supports three probe modes for derivability:
-        'embedding'      — cosine similarity against tool index (default)
-        'llm_judge'      — LLM rates derivability (lightweight)
-        'tool_grounded'  — bounded recovery agent (full version)
     """
 
     def __init__(self, config: Optional[ControllerConfig] = None,
                  llm=None, **kw):
         cfg = config or ControllerConfig(
-            name='dac_mem',
+            name='memjudge',
             persist_threshold=0.55,
             ephemeral_threshold=0.58,
             utility_weight=1.05,
@@ -182,55 +160,25 @@ class DACMemController(BaseController):
         )
         super().__init__(cfg, **kw)
         self.llm = llm
-        self._llm_probe: Optional[LLMDerivabilityProbe] = None
-        self._grounded_probe: Optional[ToolGroundedRecoveryProbe] = None
-
-    def _get_llm_probe(self) -> LLMDerivabilityProbe:
-        if self._llm_probe is None:
-            assert self.llm is not None, \
-                "LLM required for probe_mode='llm_judge'"
-            self._llm_probe = LLMDerivabilityProbe(self.llm)
-        return self._llm_probe
-
-    def _get_grounded_probe(self, tool_index: ToolIndex) -> ToolGroundedRecoveryProbe:
-        if self._grounded_probe is None:
-            assert self.llm is not None, \
-                "LLM required for probe_mode='tool_grounded'"
-            self._grounded_probe = ToolGroundedRecoveryProbe(
-                self.llm, tool_index)
-        return self._grounded_probe
+        self._probe: Optional[LLMDerivabilityProbe] = None
 
     def score_item(self, item: MemoryItem, state: ControllerState,
                    current_ts: str, tool_index: ToolIndex) -> MemoryItem:
         item = super().score_item(item, state, current_ts, tool_index)
         relevant_tools = relevant_tools_for_type(item.memory_type)
-        mode = self.config.probe_mode
 
-        # 1. Embedding probe (always computed as base)
-        emb_score, tool_scores = tool_index.probe_recoverability(
-            item, relevant_tools=relevant_tools)
-        item.metadata['tool_scores'] = tool_scores
-
-        # 2. LLM judge (if requested)
-        if mode == 'llm_judge' and self.llm is not None:
-            llm_score = self._get_llm_probe().probe(item)
+        if self.llm is not None:
+            # LLM-as-judge for derivability (main approach)
+            if self._probe is None:
+                self._probe = LLMDerivabilityProbe(self.llm)
+            llm_score = self._probe.probe(item)
             item.llm_derivability = llm_score
-            # blend: 0.6 LLM + 0.4 embedding
-            item.derivability = max(item.derivability,
-                                    0.6 * llm_score + 0.4 * emb_score)
-
-        # 3. Tool-grounded recovery probe (if requested)
-        elif mode == 'tool_grounded' and self.llm is not None:
-            probe = self._get_grounded_probe(tool_index)
-            grounded_score, probe_info = probe.probe(item, relevant_tools)
-            item.probe_derivability = grounded_score
-            item.metadata['probe_info'] = probe_info
-            # blend: 0.7 grounded + 0.3 embedding
-            item.derivability = max(item.derivability,
-                                    0.7 * grounded_score + 0.3 * emb_score)
-
-        # 4. Embedding-only (default)
+            item.derivability = max(item.derivability, llm_score)
         else:
+            # Fallback: embedding-based probe
+            emb_score, tool_scores = tool_index.probe_recoverability(
+                item, relevant_tools=relevant_tools)
+            item.metadata['tool_scores'] = tool_scores
             item.derivability = max(item.derivability, emb_score)
 
         return item
@@ -270,8 +218,8 @@ class DACMemController(BaseController):
 # ── factory ────────────────────────────────────────────────────────────────
 
 def controller_from_name(name: str, llm=None, embedder=None):
-    key = name.lower()
     kw = {'embedder': embedder} if embedder else {}
+    key = name.lower()
     if key in ('store_all', 'storeall'):
         return StoreAllController(**kw)
     if key in ('relevance', 'relevance_only'):
@@ -280,6 +228,6 @@ def controller_from_name(name: str, llm=None, embedder=None):
         return NoveltyRecencyController(**kw)
     if key in ('amac', 'amac_lite'):
         return AMACLiteController(**kw)
-    if key in ('dac', 'dac_mem', 'dacmem'):
-        return DACMemController(llm=llm, **kw)
+    if key in ('dac', 'memjudge', 'dac_mem', 'dacmem'):
+        return MemJudgeController(llm=llm, **kw)
     raise ValueError(f'Unknown controller: {name}')

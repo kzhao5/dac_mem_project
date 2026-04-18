@@ -1,220 +1,135 @@
-# DAC-Mem: Derivability-Aware Persistent Memory for Long-Horizon LLM Agents
+# MemJudge: LLM-as-Judge for Tool-Conditioned Memory Writing
 
-This repository contains a complete, runnable reference project for the paper idea:
+**Paper:** *What Not to Remember: Tool-Conditioned Memory Writing for Long-Horizon LLM Agents*
 
-**What Not to Remember: Tool-Conditioned Memory Writing for Long-Horizon LLM Agents**
-
-The core idea is simple:
+## Core idea
 
 > Persistent memory should store what is valuable and **not** cheaply recoverable later from tools or environment state.
 
-Instead of storing every seemingly useful fact, we score each candidate memory with:
-- utility
-- novelty
-- confidence
-- type prior
-- **derivability** under a bounded future access model
-- stale risk
+**MemJudge** uses an LLM-as-judge to evaluate whether each candidate memory can be recovered from future tools (profile, calendar, artifact, search). Recoverable information is filtered out of persistent memory — it lives only in ephemeral memory or is skipped entirely.
 
-The controller outputs one of three actions:
-- `PERSIST`
-- `EPHEMERAL`
-- `SKIP`
-
-This implementation is intentionally lightweight and transparent. It does **not** require closed-source APIs and can run with rule-based extraction, hybrid lexical retrieval, and optional Hugging Face extractive QA.
+Each candidate is assigned one of three actions:
+- `PERSIST` — store in long-term memory (high value, low derivability)
+- `EPHEMERAL` — keep only short-term (useful but tool-recoverable)
+- `SKIP` — discard (low value)
 
 ---
 
 ## 1. Repository layout
 
-```text
-configs/default.yaml              default hyperparameters
-data/synthetic/                   tiny smoke-test datasets
-scripts/run_experiment.py         run one controller on one dataset
-scripts/run_all.py                compare all baselines
-scripts/run_ablations.py          ablation study
-scripts/tune_dacmem.py            lightweight hyperparameter search
-scripts/smoke_test.py             local sanity check
-src/dac_mem/                      main package
-report.md                         detailed project report
+```
+configs/default.yaml        default hyperparameters
+data/synthetic/              tiny smoke-test datasets
+scripts/
+  download.py               pre-download models & data (login node, with internet)
+  run_benchmark.py          main experiment (offline on GPU node)
+  smoke_test.py             local sanity check (no model, no internet)
+  submit_job.sh             SLURM job script
+src/dac_mem/                main package
+report.md                   detailed project report
 ```
 
 ---
 
 ## 2. Installation
 
-Python 3.10+ is recommended.
-
 ```bash
-python -m venv .venv
-source .venv/bin/activate
+module load miniconda3
+conda create -n dac_mem python=3.10 -y
+conda activate dac_mem
 pip install -r requirements.txt
 ```
 
-If you want optional extractive QA with Hugging Face, keep `torch` and `transformers` installed.
-
 ---
 
-## 3. Supported datasets
+## 3. Workflow for GPU cluster (offline compute nodes)
 
-### LoCoMo
-Official source used in the paper release:
-- GitHub raw JSON: `data/locomo10.json`
+### Step 1: Pre-download models and datasets (login node, has internet)
 
-### LongMemEval
-Official cleaned JSON release:
-- `longmemeval_s_cleaned.json`
-- `longmemeval_m_cleaned.json`
-- `longmemeval_oracle.json`
-
-This project includes automatic download helpers.
-
----
-
-## 4. Quick start
-
-### Smoke test on the bundled synthetic dataset
 ```bash
-python scripts/smoke_test.py
+module load miniconda3 && conda activate dac_mem
+python scripts/download.py
 ```
 
-### Run DAC-Mem on synthetic data
+This downloads:
+- Open-source LLMs: Qwen2.5-7B, Llama-3.1-8B, Mistral-7B
+- Embedding model: BGE-large
+- Datasets: LoCoMo, LongMemEval
+
+### Step 2: Submit GPU job (offline compute node)
+
 ```bash
-python scripts/run_experiment.py \
-  --dataset synthetic \
-  --data_path data/synthetic/longmemeval_mini.json \
-  --controller dac_mem \
-  --reader_mode heuristic
+sbatch scripts/submit_job.sh
 ```
 
-### Compare all baselines on LoCoMo
+Or run interactively on a GPU node:
+
 ```bash
-python scripts/run_all.py \
-  --dataset locomo \
-  --data_path data/locomo10.json \
-  --download \
-  --limit 100
+PYTHONPATH=src python scripts/run_benchmark.py \
+    --model Qwen/Qwen2.5-7B-Instruct \
+    --dataset synthetic \
+    --device cuda
 ```
 
-### Run on LongMemEval cleaned small split
-```bash
-python scripts/run_all.py \
-  --dataset longmemeval \
-  --data_path data/longmemeval_s_cleaned.json \
-  --variant s_cleaned \
-  --download \
-  --limit 200
-```
+### Step 3: Quick smoke test (no GPU, no network)
 
-### Run ablations
 ```bash
-python scripts/run_ablations.py \
-  --dataset longmemeval \
-  --data_path data/longmemeval_s_cleaned.json \
-  --variant s_cleaned \
-  --download \
-  --limit 200
-```
-
-### Tune DAC-Mem thresholds/weights
-```bash
-python scripts/tune_dacmem.py \
-  --dataset locomo \
-  --data_path data/locomo10.json \
-  --download \
-  --limit 100
+PYTHONPATH=src python scripts/smoke_test.py
 ```
 
 ---
 
-## 5. Implemented baselines
+## 4. Baselines
 
-- `store_all`
-- `relevance_only`
-- `novelty_recency`
-- `amac_lite` — a lightweight A-MAC-style baseline using utility, confidence, novelty, recency, and type prior
-- `dac_mem` — our method
-
-Notes:
-- `amac_lite` is a clean, independent reimplementation of the **A-MAC design philosophy**, not a claim of reproducing the authors' exact official results.
-- The repository currently does **not** reproduce Memory-R1, because that method depends on reinforcement learning and a larger training/evaluation stack.
+- `store_all` — persist everything
+- `relevance_only` — utility threshold
+- `novelty_recency` — novelty + recency weighted
+- `amac_lite` — A-MAC 5-factor admission control
+- `memory_bank` — MemoryBank-style timestamp-weighted store
+- `memory_r1` — Memory-R1-inspired LLM-prompted CRUD manager (when LLM available)
+- `memjudge` — **our method**
 
 ---
 
-## 6. Evaluation outputs
+## 5. Metrics
 
-Each run produces a JSON file in `results/` with:
-- aggregated metrics
-- per-example retrieval logs
-- memory statistics
-- optional QA predictions
+Four categories:
+- **Downstream QA:** `qa_em`, `qa_f1`, `judge_score` (LLM-as-judge, 1–5 scale)
+- **Memory quality:** `persistent_size`, `persistent_derivable_fraction`, `persistent_stale_mean`, `persistent_duplicate_fraction`
+- **Retrieval:** `turn_hit@k`, `session_hit@k`, `turn_precision@k`, `turn_recall@k`
+- **Efficiency:** `latency_sec`, `retrieved_context_words`
 
-Main metrics:
-- `turn_hit@k`
-- `session_hit@k`
-- `turn_precision@k`
-- `session_precision@k`
-- `persistent_size`
-- `persistent_derivable_fraction`
-- `persistent_stale_mean`
-- `persistent_duplicate_fraction`
-- optional `qa_em`, `qa_f1`
+Plus: paired bootstrap significance tests (`MemJudge vs baselines`).
 
 ---
 
-## 7. Why this implementation is useful
+## 6. Models supported
 
-This codebase is not trying to be the most powerful memory architecture. It is trying to be:
-- **principled**
-- **simple**
-- **transparent**
-- **fast to iterate on**
-- **easy to extend into a paper-quality system**
+All via the unified `get_llm(provider, model)` interface:
 
-In particular, it keeps the project centered on the paper contribution:
+| Provider | Default model | Notes |
+|----------|--------------|-------|
+| `huggingface` | Qwen/Qwen2.5-7B-Instruct | Transformers backend |
+| `vllm` | Qwen/Qwen2.5-7B-Instruct | Fast batched inference |
+| `openai` | gpt-4o | Requires `OPENAI_API_KEY` |
+| `anthropic` | claude-sonnet-4-20250514 | Requires `ANTHROPIC_API_KEY` |
+| `google` | gemini-1.5-pro | Requires `GOOGLE_API_KEY` |
 
-> a new persistent-memory write principle based on future recoverability,
-> not a large opaque memory stack.
-
----
-
-## 8. Recommended paper-style experiment plan
-
-### Main experiments
-1. **LoCoMo 5-fold / dev-test style evaluation**
-   - tune thresholds on a dev subset
-   - compare Store-All, Relevance-Only, Novelty/Recency, A-MAC-lite, DAC-Mem
-
-2. **Zero-shot transfer to LongMemEval**
-   - use DAC-Mem settings tuned on LoCoMo
-   - evaluate retrieval quality and memory compactness on LongMemEval
-
-3. **Optional personalization transfer**
-   - extend to PERMA or MemoryCD later
-
-### Ablations
-- remove derivability
-- remove stale-risk
-- binary admit/reject instead of persist/ephemeral/skip
-- weaken tool probe / replace with heuristic derivability
-- vary future access model
-
-### Tuning experiments
-- persist threshold
-- ephemeral threshold
-- derivability weight
-- stale-risk weight
-- retrieval top-k
-- ephemeral session window
+For the paper we use small open-source models: Qwen2.5-7B, Llama-3.1-8B, Mistral-7B.
 
 ---
 
-## 9. Suggested next upgrades
+## 7. Method summary (from controllers.py)
 
-If you want to push this toward a stronger EMNLP submission, the most valuable upgrades are:
-1. replace heuristic extraction with an instruction-tuned structured extractor
-2. replace heuristic derivability with a true bounded recovery agent
-3. add a stronger reader for downstream QA
-4. expand evaluation to PERMA / MemoryCD
-5. add significance testing and confidence intervals
+```
+For each candidate memory m:
+  1. Compute features (novelty, recency, utility, stale_risk)
+  2. LLM-as-judge: derivability(m) = P(m can be recovered from tools)
+  3. persist_score  = α·utility + δ·type - β·derivability - γ·stale_risk
+     ephemeral_score = 0.65·utility + 0.55·derivability + 0.30·stale_risk
+  4. If persist_score >= 0.55:   PERSIST
+     elif ephemeral_score >= 0.58: EPHEMERAL
+     else:                          SKIP
+```
 
+The key insight: **derivability acts as a penalty on persist_score** — high-value information that's recoverable from tools should not occupy long-term memory.

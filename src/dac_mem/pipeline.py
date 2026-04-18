@@ -1,8 +1,8 @@
 """
 Main evaluation pipeline for DAC-Mem.
 
-Orchestrates: extraction → tool index → controller decisions → retrieval
-→ reading → evaluation (retrieval + memory quality + QA + LLM judge).
+Simplified: when an LLM is provided, it is automatically used for
+type classification, QA reading, and answer judging.
 """
 from __future__ import annotations
 
@@ -26,30 +26,33 @@ from .utils import parse_timestamp
 
 
 class MemoryPipeline:
-    """Full evaluation pipeline for a single controller."""
+    """Full evaluation pipeline for a single controller.
 
-    def __init__(
-        self,
-        controller: BaseController,
-        top_k: int = 8,
-        reader_mode: str = 'heuristic',
-        reader_model: Optional[str] = None,
-        ephemeral_session_window: int = 2,
-        llm=None,
-        embedder: Optional[BaseEmbedder] = None,
-        judge_llm=None,
-        use_llm_extractor: bool = False,
-    ):
+    When ``llm`` is provided, it is used for:
+      - type classification (LLMCandidateExtractor)
+      - QA reading (LLMReader)
+      - answer judging (LLMJudge) — when ``judge_llm`` is also provided
+    """
+
+    def __init__(self, controller: BaseController, *,
+                 top_k: int = 8,
+                 ephemeral_session_window: int = 2,
+                 llm=None,
+                 embedder: Optional[BaseEmbedder] = None,
+                 judge_llm=None):
         self.controller = controller
         emb = embedder or get_embedder('bge-large')
-        # extractor
-        if use_llm_extractor and llm is not None:
+
+        # Auto-detect: LLM available → use LLM extractor + LLM reader
+        if llm is not None:
             self.extractor = LLMCandidateExtractor(llm)
+            self.reader = make_reader('llm', llm=llm)
         else:
             self.extractor = CandidateExtractor()
+            self.reader = make_reader('heuristic')
+
         self.tool_extractor = ToolFactExtractor()
         self.retriever = HybridRetriever(embedder=emb)
-        self.reader = make_reader(reader_mode, reader_model, llm=llm)
         self.judge = LLMJudge(judge_llm) if judge_llm else None
         self.top_k = top_k
         self.eph_window = ephemeral_session_window
@@ -61,7 +64,6 @@ class MemoryPipeline:
         for turn in turns:
             candidates = self.extractor.extract(turn)
             for item in candidates:
-                # always populate tool index
                 entries = [
                     ToolEntry(
                         entry_id=f"tool_{item.memory_id}_{i}",
@@ -117,21 +119,16 @@ class MemoryPipeline:
             'retrieved': [r.__dict__ for r in retrieved],
         }
 
-        # QA
         if self.reader is not None:
             prediction = self.reader.answer(example.question, retrieved)
             result['prediction'] = prediction
             result['qa'] = qa_metrics(prediction, example.answer)
-
-            # LLM judge
             if self.judge is not None:
                 jr = self.judge.judge(example.question, example.answer,
                                      prediction)
-                result['judge'] = {
-                    'score': jr.score,
-                    'reasoning': jr.reasoning,
-                    'judge_model': jr.judge_model,
-                }
+                result['judge'] = {'score': jr.score,
+                                   'reasoning': jr.reasoning,
+                                   'judge_model': jr.judge_model}
                 result['qa']['judge_score'] = jr.score
         return result
 
@@ -141,27 +138,21 @@ def run_controller_on_examples(
     examples: Sequence[Example],
     dataset_name: str,
     top_k: int = 8,
-    reader_mode: str = 'heuristic',
-    reader_model: Optional[str] = None,
     llm=None,
     embedder: Optional[BaseEmbedder] = None,
     judge_llm=None,
-    use_llm_extractor: bool = False,
     limit: Optional[int] = None,
 ) -> EvaluationResult:
-    """Run a controller on a list of examples and return aggregated metrics."""
+    """Run a controller on examples and return aggregated metrics."""
     pipe = MemoryPipeline(
         controller, top_k=top_k,
-        reader_mode=reader_mode, reader_model=reader_model,
         llm=llm, embedder=embedder, judge_llm=judge_llm,
-        use_llm_extractor=use_llm_extractor,
     )
     subset = list(examples[:limit] if limit else examples)
     per_example: List[Dict] = []
     for ex in tqdm(subset, desc=f'{controller.name}:{dataset_name}'):
         per_example.append(pipe.run_example(ex))
 
-    # aggregate all metric dicts
     metric_rows: list = []
     for row in per_example:
         merged: Dict = {}

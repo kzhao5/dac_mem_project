@@ -1,0 +1,17 @@
+\begin{table}[t]
+\centering
+\caption{Results on synthetic (no_llm)}
+\label{tab:synthetic_no_llm}
+\begin{tabular}{lcccccc}
+\toprule
+Controller & Mem Size & Deriv \% & T-Hit & S-Hit & F1 & Judge \\
+\midrule
+store\_all & 5.50 & 0.48 & \textbf{1.00} & \textbf{1.00} & \textbf{0.60} & \textbf{0.00} \\
+relevance\_only & \textbf{2.00} & 0.50 & \textbf{1.00} & \textbf{1.00} & \textbf{0.60} & \textbf{0.00} \\
+novelty\_recency & 5.50 & 0.48 & \textbf{1.00} & \textbf{1.00} & \textbf{0.60} & \textbf{0.00} \\
+amac\_lite & 4.50 & \textbf{0.53} & \textbf{1.00} & \textbf{1.00} & \textbf{0.60} & \textbf{0.00} \\
+memory\_bank & 5.50 & 0.48 & \textbf{1.00} & \textbf{1.00} & \textbf{0.60} & \textbf{0.00} \\
+memjudge & \textbf{2.00} & 0.17 & \textbf{1.00} & \textbf{1.00} & \textbf{0.60} & \textbf{0.00} \\
+\bottomrule
+\end{tabular}
+\end{table}

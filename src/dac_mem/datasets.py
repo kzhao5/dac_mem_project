@@ -11,6 +11,7 @@ Supported benchmarks:
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -41,9 +42,14 @@ MEMORYBENCH_URL = ('https://huggingface.co/datasets/THU-KEG/'
 
 
 def maybe_download(url: str, out_path: str, timeout: int = 180) -> Path:
+    """Download a file if not present. Use only on a node with internet access."""
     out = Path(out_path)
     if out.exists():
         return out
+    if os.environ.get('HF_HUB_OFFLINE') == '1' or os.environ.get('DAC_OFFLINE') == '1':
+        raise RuntimeError(
+            f'Offline mode: {out_path} does not exist. '
+            f'Run scripts/download.py on a node with internet access first.')
     out.parent.mkdir(parents=True, exist_ok=True)
     r = requests.get(url, timeout=timeout)
     r.raise_for_status()

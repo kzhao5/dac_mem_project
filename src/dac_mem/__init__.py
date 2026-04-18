@@ -1,8 +1,5 @@
 """
-DAC-Mem: Derivability-Aware Controller for Persistent Memory.
-
-What Not to Remember: Tool-Conditioned Memory Writing
-for Long-Horizon LLM Agents.
+MemJudge: LLM-as-Judge for Tool-Conditioned Memory Writing.
 """
 
 from .schema import (
@@ -11,7 +8,7 @@ from .schema import (
 )
 from .controllers import (
     AMACLiteController, BaseController, ControllerConfig,
-    DACMemController, NoveltyRecencyController,
+    MemJudgeController, NoveltyRecencyController,
     RelevanceOnlyController, StoreAllController,
     controller_from_name,
 )
@@ -32,9 +29,6 @@ from .llm import BaseLLM, get_llm
 from .pipeline import MemoryPipeline, run_controller_on_examples
 from .reader import LLMReader, make_reader
 from .retrieval import HybridRetriever
-from .tool_index import (
-    LLMDerivabilityProbe, ToolGroundedRecoveryProbe,
-    ToolIndex, relevant_tools_for_type,
-)
+from .tool_index import LLMDerivabilityProbe, ToolIndex, relevant_tools_for_type
 
-__version__ = '0.2.0'
+__version__ = '0.3.0'

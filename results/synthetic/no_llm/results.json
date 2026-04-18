@@ -1,0 +1,122 @@
+[
+  {
+    "controller": "store_all",
+    "metrics": {
+      "ephemeral_size": 0.0,
+      "latency_sec": 0.02113175392150879,
+      "persistent_derivable_fraction": 0.48333333333333334,
+      "persistent_duplicate_fraction": 0.0,
+      "persistent_size": 5.5,
+      "persistent_stale_mean": 0.5874999999999999,
+      "qa_em": 0.0,
+      "qa_f1": 0.6019607843137256,
+      "retrieved_context_words": 59.0,
+      "session_hit@k": 1.0,
+      "session_precision@k": 0.55,
+      "session_recall@k": 1.0,
+      "turn_hit@k": 1.0,
+      "turn_precision@k": 0.18333333333333335,
+      "turn_recall@k": 1.0
+    }
+  },
+  {
+    "controller": "relevance_only",
+    "metrics": {
+      "ephemeral_size": 0.0,
+      "latency_sec": 0.008681774139404297,
+      "persistent_derivable_fraction": 0.5,
+      "persistent_duplicate_fraction": 0.0,
+      "persistent_size": 2.0,
+      "persistent_stale_mean": 0.4666666666666667,
+      "qa_em": 0.0,
+      "qa_f1": 0.6019607843137256,
+      "retrieved_context_words": 37.0,
+      "session_hit@k": 1.0,
+      "session_precision@k": 0.5,
+      "session_recall@k": 1.0,
+      "turn_hit@k": 1.0,
+      "turn_precision@k": 0.3333333333333333,
+      "turn_recall@k": 1.0
+    }
+  },
+  {
+    "controller": "novelty_recency",
+    "metrics": {
+      "ephemeral_size": 0.0,
+      "latency_sec": 0.013363122940063477,
+      "persistent_derivable_fraction": 0.48333333333333334,
+      "persistent_duplicate_fraction": 0.0,
+      "persistent_size": 5.5,
+      "persistent_stale_mean": 0.5874999999999999,
+      "qa_em": 0.0,
+      "qa_f1": 0.6019607843137256,
+      "retrieved_context_words": 59.0,
+      "session_hit@k": 1.0,
+      "session_precision@k": 0.55,
+      "session_recall@k": 1.0,
+      "turn_hit@k": 1.0,
+      "turn_precision@k": 0.18333333333333335,
+      "turn_recall@k": 1.0
+    }
+  },
+  {
+    "controller": "amac_lite",
+    "metrics": {
+      "ephemeral_size": 0.0,
+      "latency_sec": 0.011679887771606445,
+      "persistent_derivable_fraction": 0.525,
+      "persistent_duplicate_fraction": 0.0,
+      "persistent_size": 4.5,
+      "persistent_stale_mean": 0.53125,
+      "qa_em": 0.0,
+      "qa_f1": 0.6019607843137256,
+      "retrieved_context_words": 51.0,
+      "session_hit@k": 1.0,
+      "session_precision@k": 0.55,
+      "session_recall@k": 1.0,
+      "turn_hit@k": 1.0,
+      "turn_precision@k": 0.225,
+      "turn_recall@k": 1.0
+    }
+  },
+  {
+    "controller": "memory_bank",
+    "metrics": {
+      "ephemeral_size": 0.0,
+      "latency_sec": 0.012702465057373047,
+      "persistent_derivable_fraction": 0.48333333333333334,
+      "persistent_duplicate_fraction": 0.0,
+      "persistent_size": 5.5,
+      "persistent_stale_mean": 0.5874999999999999,
+      "qa_em": 0.0,
+      "qa_f1": 0.6019607843137256,
+      "retrieved_context_words": 59.0,
+      "session_hit@k": 1.0,
+      "session_precision@k": 0.55,
+      "session_recall@k": 1.0,
+      "turn_hit@k": 1.0,
+      "turn_precision@k": 0.18333333333333335,
+      "turn_recall@k": 1.0
+    }
+  },
+  {
+    "controller": "memjudge",
+    "metrics": {
+      "ephemeral_size": 3.5,
+      "latency_sec": 0.015568733215332031,
+      "persistent_derivable_fraction": 0.16666666666666666,
+      "persistent_duplicate_fraction": 0.0,
+      "persistent_size": 2.0,
+      "persistent_stale_mean": 0.26666666666666666,
+      "qa_em": 0.0,
+      "qa_f1": 0.6019607843137256,
+      "retrieved_context_words": 59.0,
+      "session_hit@k": 1.0,
+      "session_precision@k": 0.55,
+      "session_recall@k": 1.0,
+      "turn_hit@k": 1.0,
+      "turn_precision@k": 0.18333333333333335,
+      "turn_recall@k": 1.0
+    }
+  }
+]

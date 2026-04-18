@@ -1,0 +1,24 @@
+[
+  {
+    "controller": "relevance_only",
+    "x": 2.0,
+    "y": 1.0,
+    "metrics": {
+      "ephemeral_size": 0.0,
+      "latency_sec": 0.008681774139404297,
+      "persistent_derivable_fraction": 0.5,
+      "persistent_duplicate_fraction": 0.0,
+      "persistent_size": 2.0,
+      "persistent_stale_mean": 0.4666666666666667,
+      "qa_em": 0.0,
+      "qa_f1": 0.6019607843137256,
+      "retrieved_context_words": 37.0,
+      "session_hit@k": 1.0,
+      "session_precision@k": 0.5,
+      "session_recall@k": 1.0,
+      "turn_hit@k": 1.0,
+      "turn_precision@k": 0.3333333333333333,
+      "turn_recall@k": 1.0
+    }
+  }
+]

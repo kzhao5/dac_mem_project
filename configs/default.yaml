@@ -1,23 +1,20 @@
-# DAC-Mem default configuration
+# MemJudge default configuration
 
-project_name: dac_mem
+project_name: memjudge
 
-# ── Embedding model ───────────────────────────────────────────────────────
+# ── Embedding ──────────────────────────────────────────────────────────────
 embedding:
-  model: bge-large                # bge-large | minilm | gte-large | openai | hashing
-  device: cpu                     # cpu | cuda | auto
-  use_cache: true
+  model: bge-large       # bge-large | minilm | gte-large | hashing
+  device: cpu
 
-# ── LLM providers ─────────────────────────────────────────────────────────
+# ── LLM ────────────────────────────────────────────────────────────────────
 llm:
-  # Main LLM for type classification, derivability probing, reading
-  provider: openai                # openai | anthropic | google | qwen | llama | vllm
-  model: gpt-4o
-  use_cache: true
-
-  # Judge LLM (can differ from main LLM for independence)
-  judge_provider: openai
-  judge_model: gpt-4o
+  # Use local open-source models (offline on GPU node)
+  provider: huggingface  # huggingface | vllm
+  model: Qwen/Qwen2.5-7B-Instruct
+  # Alternatives:
+  # model: meta-llama/Llama-3.1-8B-Instruct
+  # model: mistralai/Mistral-7B-Instruct-v0.3
 
 # ── Retrieval ──────────────────────────────────────────────────────────────
 retrieval:
@@ -31,46 +28,14 @@ memory:
   ephemeral_session_window: 2
   duplicate_threshold: 0.88
 
-# ── Pipeline ───────────────────────────────────────────────────────────────
-pipeline:
-  reader_mode: llm                # none | heuristic | hf_extractive | llm
-  use_llm_extractor: true         # use LLM for type classification
-  use_llm_judge: true             # use LLM-as-judge for QA evaluation
-
-# ── Controllers ────────────────────────────────────────────────────────────
-controllers:
-  dac_mem:
-    persist_threshold: 0.55
-    ephemeral_threshold: 0.58
-    utility_weight: 1.05
-    confidence_weight: 0.15
-    novelty_weight: 0.35
-    recency_weight: 0.10
-    type_weight: 0.35
-    derivability_weight: 1.00
-    stale_weight: 0.75
-    # probe_mode: embedding | llm_judge | tool_grounded
-    probe_mode: tool_grounded
-
-  amac_lite:
-    persist_threshold: 0.62
-    weights:
-      utility: 0.38
-      confidence: 0.14
-      novelty: 0.22
-      recency: 0.10
-      type_prior: 0.16
-
-  relevance_only:
-    persist_threshold: 0.58
-
-  novelty_recency:
-    persist_threshold: 0.55
-
-# ── Tuning ─────────────────────────────────────────────────────────────────
-tuning:
-  persist_threshold: [0.45, 0.50, 0.55, 0.60]
-  ephemeral_threshold: [0.50, 0.55, 0.60, 0.65]
-  derivability_weight: [0.8, 1.0, 1.2]
-  stale_weight: [0.5, 0.75, 1.0]
-  objective: "turn_hit@k + 0.5 * session_hit@k - 0.02 * persistent_size"
+# ── MemJudge controller ────────────────────────────────────────────────────
+memjudge:
+  persist_threshold: 0.55
+  ephemeral_threshold: 0.58
+  utility_weight: 1.05
+  confidence_weight: 0.15
+  novelty_weight: 0.35
+  recency_weight: 0.10
+  type_weight: 0.35
+  derivability_weight: 1.00
+  stale_weight: 0.75
